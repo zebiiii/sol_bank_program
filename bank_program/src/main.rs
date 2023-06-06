@@ -58,11 +58,6 @@ pub fn process_deposit(
 
     let transfer_amount: u64 = u64::from_le_bytes(instruction_data[1..9].try_into().unwrap());
 
-    // let pda_key = Pubkey::create_program_address(&[], program_id)?;
-    // if pda_account.key != &pda_key {
-    //     return Err(ProgramError::InvalidAccountData);
-    // }
-
     assert!(
         pda_account.is_writable,
         "Deposit account must be writable"
@@ -103,18 +98,25 @@ pub fn process_withdraw(
         "Deposit account must be writable"
     );
 
-    // Check if pda account has enough lamport.
-    // TODO: Check if PDA account seeds correspond to withdrawer account
+    // Check if user is associated with PDA
+    let user_key = user_account.key;
+    if !pda_key.starts_with(&user_key.to_bytes()[..32]) {
+        return Err(ProgramError::InvalidAccountData);
+    }
 
+    // 8 first octal is for pda balance
     let pda_data = pda_account.data.borrow();
     if pda_data.len() < 8 {
         return Err(ProgramError::InvalidAccountData);
     }
+
+    // Check if pda account has enough lamport.
     let pda_balance = u64::from_le_bytes(pda_data[0..8].try_into().unwrap());
     if (pda_balance < withdraw_amount) {
         return Err(ProgramError::InsufficientFunds);
     }
 
+    // Withdraw sol to user
     let transfer_instruction = solana_program::system_instruction::transfer(
         pda_account.key,
         user_account.key,
@@ -125,6 +127,6 @@ pub fn process_withdraw(
         &[pda_account.clone(), user_account.clone(), system_program.clone()],
     )?;
 
-    msg!("Successful withdraz of {:?}", withdraw_amount);
+    msg!("Successful withdraw of {:?}", withdraw_amount);
     Ok(())
 }
