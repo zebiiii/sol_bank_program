@@ -10,13 +10,10 @@ use solana_program::{
     system_instruction,
 };
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
-pub struct Counter {
-    pub count: u64,
-}
-
-mod state;
-use state::*;
+// #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+// pub struct Counter {
+//     pub count: u64,
+// }
 
 #[cfg(not(feature = "no-entrypoint"))]
 use solana_program::entrypoint;
@@ -33,11 +30,11 @@ pub fn process_instruction(
     match instruction_discriminant[0] {
         0 => {
             msg!("Instruction: Deposit");
-            process_deposit(accounts, instruction_data_inner)?;
+            process_deposit(_program_id, accounts, instruction_data_inner)?;
         }
         1 => {
             msg!("Instruction: Withdraw");
-            process_withdraw(accounts, instruction_data_inner)?;
+            process_withdraw(_program_id, accounts, instruction_data_inner)?;
         }
         _ => {
             msg!("Error: unknown instruction")
@@ -47,6 +44,7 @@ pub fn process_instruction(
 }
 
 pub fn process_deposit(
+    _program_id: &Pubkey,
     accounts: &[AccountInfo],
     instruction_data: &[u8],
 ) -> Result<(), ProgramError> {
@@ -58,10 +56,7 @@ pub fn process_deposit(
 
     let transfer_amount: u64 = u64::from_le_bytes(instruction_data[1..9].try_into().unwrap());
 
-    assert!(
-        pda_account.is_writable,
-        "Deposit account must be writable"
-    );
+    assert!(pda_account.is_writable, "Deposit account must be writable");
 
     // Creating transfer instruction
     let transfer_instruction = solana_program::system_instruction::transfer(
@@ -73,7 +68,11 @@ pub fn process_deposit(
     // Transfering sol to pda account
     invoke(
         &transfer_instruction,
-        &[user_account.clone(), pda_account.clone(), system_program.clone()],
+        &[
+            user_account.clone(),
+            pda_account.clone(),
+            system_program.clone(),
+        ],
     )?;
 
     msg!("Successful deposit of {:?}", transfer_amount);
@@ -82,6 +81,7 @@ pub fn process_deposit(
 }
 
 pub fn process_withdraw(
+    _program_id: &Pubkey,
     accounts: &[AccountInfo],
     instruction_data: &[u8],
 ) -> Result<(), ProgramError> {
@@ -93,14 +93,18 @@ pub fn process_withdraw(
 
     let withdraw_amount: u64 = u64::from_le_bytes(instruction_data[1..9].try_into().unwrap());
 
-    assert!(
-        pda_account.is_writable,
-        "Deposit account must be writable"
-    );
+    assert!(pda_account.is_writable, "Deposit account must be writable");
+
+    // Wrong account
+    if pda_account.owner != _program_id {
+        msg!("Greeted account does not have the correct program id");
+        return Err(ProgramError::IncorrectProgramId);
+    }
 
     // Check if user is associated with PDA
     let user_key = user_account.key;
-    if !pda_key.starts_with(&user_key.to_bytes()[..32]) {
+    let pda_key = pda_account.key;
+    if !pda_key.to_bytes().starts_with(&user_key.to_bytes()[..32]) {
         return Err(ProgramError::InvalidAccountData);
     }
 
@@ -112,7 +116,7 @@ pub fn process_withdraw(
 
     // Check if pda account has enough lamport.
     let pda_balance = u64::from_le_bytes(pda_data[0..8].try_into().unwrap());
-    if (pda_balance < withdraw_amount) {
+    if pda_balance < withdraw_amount {
         return Err(ProgramError::InsufficientFunds);
     }
 
@@ -124,7 +128,11 @@ pub fn process_withdraw(
     );
     invoke(
         &transfer_instruction,
-        &[pda_account.clone(), user_account.clone(), system_program.clone()],
+        &[
+            pda_account.clone(),
+            user_account.clone(),
+            system_program.clone(),
+        ],
     )?;
 
     msg!("Successful withdraw of {:?}", withdraw_amount);
